@@ -1,7 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { X, Users, Calendar, AlertTriangle, DollarSign, Lock, Unlock, ExternalLink } from 'lucide-react';
-import { Cleaning, NotesData } from '../types';
+import { Cleaning, NotesData, Cleaner } from '../types';
 import { formatDate, getDayName, formatPrice } from '../utils/helpers';
+import { createClient } from '@supabase/supabase-js';
+import toast from 'react-hot-toast';
+
+const supabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL || '',
+  import.meta.env.VITE_SUPABASE_ANON_KEY || ''
+);
 
 interface CleaningDetailsModalProps {
   cleaning: Cleaning | null;
@@ -33,6 +40,8 @@ const CleaningDetailsModal: React.FC<CleaningDetailsModalProps> = ({
   const [notes, setNotes] = useState('');
   const [cleaningPrice, setCleaningPrice] = useState<number>(0);
   const [selectedCleaner, setSelectedCleaner] = useState<string>('');
+  const [cleaners, setCleaners] = useState<Cleaner[]>([]);
+  const [loading, setLoading] = useState(true);
   
   useEffect(() => {
     if (cleaning) {
@@ -42,6 +51,39 @@ const CleaningDetailsModal: React.FC<CleaningDetailsModalProps> = ({
       setSelectedCleaner(cleaning.cleanerId || '');
     }
   }, [cleaning]);
+
+  useEffect(() => {
+    loadCleaners();
+  }, []);
+
+  const loadCleaners = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('cleaners')
+        .select('id, name, is_admin')
+        .eq('is_admin', false);
+
+      if (error) {
+        console.error('Error loading cleaners:', error);
+        toast.error('Failed to load cleaners');
+        return;
+      }
+
+      if (data) {
+        setCleaners(data.map(cleaner => ({
+          id: cleaner.id,
+          name: cleaner.name,
+          isAdmin: cleaner.is_admin
+        })));
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      toast.error('Failed to load cleaners');
+    } finally {
+      setLoading(false);
+    }
+  };
   
   const handleSave = () => {
     if (cleaning) {
@@ -149,11 +191,18 @@ const CleaningDetailsModal: React.FC<CleaningDetailsModalProps> = ({
                 value={selectedCleaner}
                 onChange={(e) => setSelectedCleaner(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                disabled={loading}
               >
                 <option value="">Select a cleaner</option>
-                <option value="cleaner-1">Cleaner 1</option>
-                <option value="cleaner-2">Cleaner 2</option>
+                {cleaners.map(cleaner => (
+                  <option key={cleaner.id} value={cleaner.id}>
+                    {cleaner.name}
+                  </option>
+                ))}
               </select>
+              {loading && (
+                <p className="mt-1 text-sm text-gray-500">Loading cleaners...</p>
+              )}
             </div>
           )}
 

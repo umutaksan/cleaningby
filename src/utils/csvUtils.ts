@@ -1,15 +1,22 @@
 import { Cleaning } from '../types';
 import { maskName, getCleaningStatus } from './helpers';
+import { createClient } from '@supabase/supabase-js';
 
-export const processCSVData = (data: any[]): { cleanings: Cleaning[], properties: string[] } => {
+const supabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL || '',
+  import.meta.env.VITE_SUPABASE_ANON_KEY || ''
+);
+
+export const processCSVData = async (data: any[]): Promise<{ cleanings: Cleaning[], properties: string[] }> => {
   const cleanings: Cleaning[] = [];
   const propertySet = new Set<string>();
   
-  data.forEach(row => {
-    if (!Array.isArray(row) || row.length < 5) return; // Invalid row
-    
+  // Skip header row and process only valid rows
+  const rows = data.slice(1).filter(row => Array.isArray(row) && row.length >= 9);
+  
+  for (const row of rows) {
     const propertyName = row[8]; // HouseName
-    if (!propertyName) return; // Skip if no property name
+    if (!propertyName) continue;
     
     const guestName = row[4]; // Name
     const arrivalDate = row[5]; // DateArrival
@@ -18,31 +25,44 @@ export const processCSVData = (data: any[]): { cleanings: Cleaning[], properties
     
     propertySet.add(propertyName);
     
-    cleanings.push({
-      id: `${propertyName}-${departureDate}`,
+    const cleaning: Cleaning = {
+      id: `${propertyName}-${departureDate}-${Date.now()}`.replace(/[^a-z0-9-]/gi, '-').toLowerCase(),
       property: propertyName,
       guest: guestName,
       maskedGuest: maskName(guestName),
-      arrivalDate: arrivalDate,
-      departureDate: departureDate,
-      peopleCount: peopleCount,
+      arrivalDate: new Date(arrivalDate).toISOString(),
+      departureDate: new Date(departureDate).toISOString(),
+      peopleCount: parseInt(peopleCount),
       status: getCleaningStatus(departureDate)
-    });
-  });
-  
-  // Remove duplicate records
-  const uniqueCleanings: Cleaning[] = [];
-  const cleaningIds = new Set<string>();
-  
-  cleanings.forEach(cleaning => {
-    if (!cleaningIds.has(cleaning.id)) {
-      cleaningIds.add(cleaning.id);
-      uniqueCleanings.push(cleaning);
+    };
+
+    cleanings.push(cleaning);
+
+    try {
+      const { error } = await supabase
+        .from('cleanings')
+        .insert({
+          id: cleaning.id,
+          property: cleaning.property,
+          guest: cleaning.guest,
+          arrival_date: cleaning.arrivalDate,
+          departure_date: cleaning.departureDate,
+          people_count: cleaning.peopleCount,
+          status: cleaning.status
+        });
+
+      if (error) {
+        console.error('Error inserting cleaning:', error);
+        throw new Error(`Error inserting cleaning: ${error.message}`);
+      }
+    } catch (error) {
+      console.error('Error in insert operation:', error);
+      throw error;
     }
-  });
+  }
   
   return {
-    cleanings: uniqueCleanings,
+    cleanings,
     properties: Array.from(propertySet)
   };
 };
